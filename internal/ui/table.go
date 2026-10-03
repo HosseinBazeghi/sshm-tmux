@@ -9,6 +9,9 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 )
 
+// pingColumnWidth is the fixed width of the ping latency column.
+const pingColumnWidth = 8
+
 // calculateDynamicColumnWidths calculates optimal column widths based on terminal width
 // and content length, ensuring all content fits when possible
 func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, int, int) {
@@ -66,7 +69,7 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 
 	// Calculate available width (minus borders and separators)
 	// Table has borders (2 chars) + column separators (3 chars between 4 columns)
-	availableWidth := m.width - 5
+	availableWidth := m.width - 8 - pingColumnWidth
 
 	totalNeededWidth := maxNameLength + maxHostnameLength + maxTagsLength + maxLastLoginLength
 
@@ -121,17 +124,12 @@ func (m *Model) calculateDynamicColumnWidths(hosts []config.SSHHost) (int, int, 
 	return nameWidth, hostnameWidth, tagsWidth, lastLoginWidth
 }
 
-// updateTableRows updates the table with filtered hosts
-func (m *Model) updateTableRows() {
-	var rows []table.Row
-	hostsToShow := m.filteredHosts
-	if hostsToShow == nil {
-		hostsToShow = m.hosts
-	}
-
-	for _, host := range hostsToShow {
-		// Get ping status indicator
+// buildHostRows converts hosts into table rows.
+func (m *Model) buildHostRows(hosts []config.SSHHost) []table.Row {
+	rows := make([]table.Row, 0, len(hosts))
+	for _, host := range hosts {
 		statusIndicator := m.getPingStatusIndicator(host.Name)
+		latency := m.getPingLatencyString(host.Name)
 
 		// Format tags for display
 		var tagsStr string
@@ -154,6 +152,7 @@ func (m *Model) updateTableRows() {
 
 		rows = append(rows, table.Row{
 			statusIndicator + " " + host.Name,
+			latency,
 			host.Hostname,
 			// host.User,      // Commented to save space
 			// host.Port,      // Commented to save space
@@ -161,8 +160,17 @@ func (m *Model) updateTableRows() {
 			lastLoginStr,
 		})
 	}
+	return rows
+}
 
-	m.table.SetRows(rows)
+// updateTableRows updates the table with filtered hosts
+func (m *Model) updateTableRows() {
+	hostsToShow := m.filteredHosts
+	if hostsToShow == nil {
+		hostsToShow = m.hosts
+	}
+
+	m.table.SetRows(m.buildHostRows(hostsToShow))
 
 	// Update table height and columns based on current terminal size
 	m.updateTableHeight()
@@ -244,6 +252,7 @@ func (m *Model) updateTableColumns() {
 
 	columns := []table.Column{
 		{Title: nameTitle, Width: nameWidth},
+		{Title: "Ping", Width: pingColumnWidth},
 		{Title: "Hostname", Width: hostnameWidth},
 		// {Title: "User", Width: userWidth},      // Commented to save space
 		// {Title: "Port", Width: portWidth},      // Commented to save space

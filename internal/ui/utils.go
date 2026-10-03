@@ -71,6 +71,44 @@ func formatConfigFile(filePath string) string {
 	return filePath
 }
 
+// withTerm returns env with TERM replaced by term.
+func withTerm(env []string, term string) []string {
+	entry := "TERM=" + term
+	for i, e := range env {
+		if strings.HasPrefix(e, "TERM=") {
+			env[i] = entry
+			return env
+		}
+	}
+	return append(env, entry)
+}
+
+// formatPingLatency renders a ping status and duration for the latency column
+func formatPingLatency(status connectivity.PingStatus, duration time.Duration) string {
+	switch status {
+	case connectivity.StatusOnline:
+		return fmt.Sprintf("%dms", duration.Milliseconds())
+	case connectivity.StatusOffline:
+		return "down"
+	case connectivity.StatusConnecting:
+		return "..."
+	default:
+		return ""
+	}
+}
+
+// getPingLatencyString returns the latency of the last ping for a host
+func (m *Model) getPingLatencyString(hostName string) string {
+	if m.pingManager == nil {
+		return ""
+	}
+	result, exists := m.pingManager.GetResult(hostName)
+	if !exists {
+		return ""
+	}
+	return formatPingLatency(result.Status, result.Duration)
+}
+
 // getPingStatusIndicator returns a colored circle indicator based on ping status
 func (m *Model) getPingStatusIndicator(hostName string) string {
 	if m.pingManager == nil {

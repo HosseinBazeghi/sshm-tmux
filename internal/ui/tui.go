@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Gu1llaum-3/sshm/internal/config"
@@ -85,6 +84,7 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 	// Create table columns
 	columns := []table.Column{
 		{Title: "Name", Width: nameWidth},
+		{Title: "Ping", Width: pingColumnWidth},
 		{Title: "Hostname", Width: hostnameWidth},
 		// {Title: "User", Width: 12},                  // Commented to save space
 		// {Title: "Port", Width: 6},                   // Commented to save space
@@ -92,40 +92,7 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 		{Title: "Last Login", Width: lastLoginWidth},
 	}
 
-	// Convert hosts to table rows
-	var rows []table.Row
-	for _, host := range sortedHosts {
-		// Get ping status indicator
-		statusIndicator := m.getPingStatusIndicator(host.Name)
-
-		// Format tags for display
-		var tagsStr string
-		if len(host.Tags) > 0 {
-			// Add the # prefix to each tag and join them with spaces
-			var formattedTags []string
-			for _, tag := range host.Tags {
-				formattedTags = append(formattedTags, "#"+tag)
-			}
-			tagsStr = strings.Join(formattedTags, " ")
-		}
-
-		// Format last login information
-		var lastLoginStr string
-		if historyManager != nil {
-			if lastConnect, exists := historyManager.GetLastConnectionTime(host.Name); exists {
-				lastLoginStr = formatTimeAgo(lastConnect)
-			}
-		}
-
-		rows = append(rows, table.Row{
-			statusIndicator + " " + host.Name,
-			host.Hostname,
-			// host.User,        // Commented to save space
-			// host.Port,        // Commented to save space
-			tagsStr,
-			lastLoginStr,
-		})
-	}
+	rows := m.buildHostRows(sortedHosts)
 
 	// Create the table with initial height (will be updated on first WindowSizeMsg)
 	t := table.New(

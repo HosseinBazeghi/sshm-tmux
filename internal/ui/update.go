@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -22,25 +23,18 @@ type (
 	errorMsg        string
 )
 
-// startPingAllCmd creates a command to ping all hosts concurrently
+// startPingAllCmd creates commands to ping all hosts concurrently
 func (m Model) startPingAllCmd() tea.Cmd {
-	if m.pingManager == nil {
+	if m.pingManager == nil || len(m.hosts) == 0 {
 		return nil
 	}
 
-	return tea.Batch(
-		// Create individual ping commands for each host
-		func() tea.Cmd {
-			var cmds []tea.Cmd
-			for _, host := range m.hosts {
-				cmds = append(cmds, pingSingleHostCmd(m.pingManager, host))
-			}
-			return tea.Batch(cmds...)
-		}(),
-	)
+	cmds := make([]tea.Cmd, 0, len(m.hosts))
+	for _, host := range m.hosts {
+		cmds = append(cmds, pingSingleHostCmd(m.pingManager, host))
+	}
+	return tea.Batch(cmds...)
 }
-
-// listenForPingResultsCmd is no longer needed since we use individual ping commands
 
 // pingSingleHostCmd creates a command to ping a single host
 func pingSingleHostCmd(pingManager *connectivity.PingManager, host config.SSHHost) tea.Cmd {
@@ -78,6 +72,8 @@ func (m Model) Init() tea.Cmd {
 	if m.currentVersion != "" && m.appConfig.IsUpdateCheckEnabled() {
 		cmds = append(cmds, checkVersionCmd(m.currentVersion))
 	}
+
+	cmds = append(cmds, m.startPingAllCmd())
 
 	return tea.Batch(cmds...)
 }
@@ -134,6 +130,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fileSelectorForm.width = m.width
 			m.fileSelectorForm.height = m.height
 			m.fileSelectorForm.styles = m.styles
+		}
+		if m.sessionForm != nil {
+			m.sessionForm.width = m.width
+			m.sessionForm.height = m.height
+			m.sessionForm.styles = m.styles
 		}
 		return m, nil
 
@@ -385,6 +386,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		return m, nil
 
+	case sessionsLoadedMsg:
+		// Forward the host probe result to the connection window
+		if m.viewMode == ViewSessionSelect && m.sessionForm != nil {
+			var newForm *sessionModel
+			newForm, cmd = m.sessionForm.Update(msg)
+			m.sessionForm = newForm
+		}
+		return m, cmd
+
+	case sessionConnectMsg:
+		// Open the SSH connection chosen in the connection window
+
+		// Record the connection in history
+		if m.historyManager != nil {
+			err := m.historyManager.RecordConnection(msg.hostName)
+			if err != nil {
+				// Log the error but don't prevent the connection
+				fmt.Printf("Warning: Could not record connection history: %v\n", err)
+			}
+		}
+
+		sshCmd := exec.Command("ssh", msg.sshArgs...)
+		if msg.termFallback {
+			// host lacks our TERM entry: use a portable fallback
+			sshCmd.Env = withTerm(os.Environ(), "xterm-256color")
+		}
+		return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
+			return tea.Quit()
+		})
+
+	case sessionCloseMsg:
+		// back to the host list
+		m.viewMode = ViewList
+		m.sessionForm = nil
+		m.table.Focus()
+		return m, nil
+
 	case tea.KeyMsg:
 		// Handle view-specific key presses
 		switch m.viewMode {
@@ -435,6 +473,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var newForm *fileSelectorModel
 				newForm, cmd = m.fileSelectorForm.Update(msg)
 				m.fileSelectorForm = newForm
+				return m, cmd
+			}
+		case ViewSessionSelect:
+			if m.sessionForm != nil {
+				var newForm *sessionModel
+				newForm, cmd = m.sessionForm.Update(msg)
+				m.sessionForm = newForm
 				return m, cmd
 			}
 		case ViewList:
@@ -554,31 +599,13 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.table.Focus()
 			return m, nil
 		} else {
-			// Connect to the selected host
+			// Open the connection window (direct SSH or a tmux session)
 			selected := m.table.SelectedRow()
 			if len(selected) > 0 {
 				hostName := extractHostNameFromTableRow(selected[0]) // Extract hostname from first column
-
-				// Record the connection in history
-				if m.historyManager != nil {
-					err := m.historyManager.RecordConnection(hostName)
-					if err != nil {
-						// Log the error but don't prevent the connection
-						fmt.Printf("Warning: Could not record connection history: %v\n", err)
-					}
-				}
-
-				// Build the SSH command with the appropriate config file
-				var sshCmd *exec.Cmd
-				if m.configFile != "" {
-					sshCmd = exec.Command("ssh", "-F", m.configFile, hostName)
-				} else {
-					sshCmd = exec.Command("ssh", hostName)
-				}
-
-				return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
-					return tea.Quit()
-				})
+				m.sessionForm = NewSessionForm(hostName, m.styles, m.width, m.height, m.configFile)
+				m.viewMode = ViewSessionSelect
+				return m, m.sessionForm.Init()
 			}
 		}
 	case "e":

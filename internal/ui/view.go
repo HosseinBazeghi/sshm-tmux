@@ -43,6 +43,10 @@ func (m Model) View() string {
 		if m.fileSelectorForm != nil {
 			return m.fileSelectorForm.View()
 		}
+	case ViewSessionSelect:
+		if m.sessionForm != nil {
+			return m.sessionForm.View()
+		}
 	case ViewList:
 		return m.renderListView()
 	}
@@ -114,7 +118,7 @@ func (m Model) renderListView() string {
 	// Add the help text
 	var helpText string
 	if !m.searchMode {
-		helpText = " ↑/↓: navigate • Enter: connect • p: ping all • i: info • h: help • q: quit"
+		helpText = " ↑/↓: navigate • Enter: connect (main/tmux) • p: ping all • i: info • h: help • q: quit"
 	} else {
 		helpText = " Type to filter • Enter: validate • Tab: switch • ESC: quit"
 	}
